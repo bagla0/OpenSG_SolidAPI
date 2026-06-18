@@ -75,7 +75,7 @@ def compute_ABD_CLT(thick, nlay, angle, mat_names, material_database):
     # Nodes (1D SG)
     th, s = [0], 0  # Reference-------- 0
     for k in thick:
-        s = s + k  # Inward normal in orien provided by yaml file
+        s = s - k  # Inward normal in orien provided by yaml file
         th.append(s)
   #  points = np.array(th)
     
@@ -152,7 +152,8 @@ def compute_ABD_CLT(thick, nlay, angle, mat_names, material_database):
         
 
 # Generate ABD matrix (Plate model)
-def compute_ABD_matrix(thick, nlay, angle, mat_names, material_database):
+def compute_ABD_matrix(thick, nlay, angle, mat_names, material_database,
+                       return_warping=False):
     """Compute the ABD matrix for composite laminates.
 
     This function implements the MSG-based Kirchhoff plate stiffness matrix computation
@@ -190,9 +191,17 @@ def compute_ABD_matrix(thick, nlay, angle, mat_names, material_database):
 
     # Nodes (1D SG)
     th = [[0.0, 0.0, 0.0]]  # Start with the node at the origin
+    # 1. Calculate Total Thickness to find the offset
+  #  total_thickness = sum(thick)
+    
+    # 2. Nodes (1D SG) - Starting from -Total/2 to center the reference
+   # s = -total_thickness / 2.0  
+    
+    # Initialize list with the first starting node
+  #  th = [[s, 0.0, 0.0]]
     s = 0  # Reference-------- 0
     for k in thick:
-        s = s + k
+        s = s - k
         th.append([s, 0.0, 0.0])  # Append the 3D coordinate [x, 0, 0]
     points = np.array(th, dtype=np.float64)
     # Elements
@@ -416,6 +425,10 @@ def compute_ABD_matrix(thick, nlay, angle, mat_names, material_database):
     
   #  D_eff=compute_ABD_CLT(thick, nlay, angle, mat_names, material_database)
 
+    if return_warping:
+        # V0 is the plate fluctuation (warping); CG1 vector dof layout
+        # [v1,v2,v3] per node, so V0[0::3]=v1, V0[1::3]=v2, V0[2::3]=v3.
+        return D_eff, [mu, mu * xm3, i22], V0
     return D_eff ,  [mu,mu*xm3,i22]
 
 
@@ -473,10 +486,12 @@ def compute_timo_boun(ABD, boundary_submeshdata):
     e, V_l, dv, v_, x, dx = utils.local_boun(
         boundary_mesh, boundary_frame, boundary_subdomains
     )
-
+    
+    utils.plot_and_save_local_frames(boundary_mesh, boundary_frame,boundary_subdomains, prefix="orientation")
+    
     boundary_mesh.topology.create_connectivity(1, 1)
     V0, Dle, Dhe, D_ee, V1s = utils.initialize_array(V_l)
-    nullspace_basis, null = shared_utils.compute_nullspace(V_l, ABD=True)
+    nullspace_basis, null = shared_utils.compute_nullspace(V_l, ABD=False)  # 4 modes: 3 transl + twist (CG2 has dof-coords)
     
     #   A_l=A_mat(e,x,dx,nullspace(V_l),v_,dv,mesh_l)
     # Compute A_mat
@@ -498,8 +513,7 @@ def compute_timo_boun(ABD, boundary_submeshdata):
     
     A_l = assemble_matrix(form(F2 + ff))
     A_l.assemble()
-    A_l.setNullSpace(null) 
-  #  A_l=utils.apply_null_A(A_ll,nullspace_basis) 
+    A_l.setNullSpace(null)
 
     gamma_e = utils.gamma_e(e, x)
     for p in range(4):
@@ -510,7 +524,7 @@ def compute_timo_boun(ABD, boundary_submeshdata):
                 for i in range(nphases)
             ]
         )
-        
+
         r_he = form(rhs(F2))
         F_l = petsc.assemble_vector(r_he)
         F_l.ghostUpdate(
@@ -518,11 +532,25 @@ def compute_timo_boun(ABD, boundary_submeshdata):
         )
         null.remove(F_l)
         Dhe[:,p]=F_l[:]  #F_array
-
         w = shared_utils.solve_ksp(A_l, F_l, V_l)
         V0[:, p] = w.x.array[:]
 
-    V0_csr=csr_matrix(V0) 
+    # --- VABS Eq.85 projection of V0 (3 translations + twist), matrix-free ---
+    Dc_cols = []
+    for expr in [v_[0], v_[1], v_[2], v_[1].dx(2) - v_[2].dx(1)]:
+        f_c = dolfinx.fem.form(sum(expr * dx(ii) for ii in range(nphases)))
+        Dc_cols.append(dolfinx.fem.assemble_vector(f_c).array[:])
+    Dc = np.column_stack(Dc_cols)
+    psi_funcs = [dolfinx.fem.Function(V_l) for _ in range(4)]
+    psi_funcs[0].interpolate(lambda x: np.vstack((np.ones_like(x[0]), np.zeros_like(x[0]), np.zeros_like(x[0]))))
+    psi_funcs[1].interpolate(lambda x: np.vstack((np.zeros_like(x[0]), np.ones_like(x[0]), np.zeros_like(x[0]))))
+    psi_funcs[2].interpolate(lambda x: np.vstack((np.zeros_like(x[0]), np.zeros_like(x[0]), np.ones_like(x[0]))))
+    psi_funcs[3].interpolate(lambda x: np.vstack((np.zeros_like(x[0]), -x[2], x[1])))
+    Psi = np.column_stack([f.x.array[:] for f in psi_funcs])
+    inv_Dc_T_Psi = np.linalg.inv(np.dot(Dc.T, Psi))
+    V0 = V0 - np.dot(Psi, np.dot(inv_Dc_T_Psi, np.dot(Dc.T, V0)))
+
+    V0_csr=csr_matrix(V0)
     D1=V0_csr.T.dot(csr_matrix(-Dhe)) 
     
     
@@ -591,24 +619,19 @@ def compute_timo_boun(ABD, boundary_submeshdata):
     # V0DllV0
     V0DllV0 = (V0_csr.T.dot(Dll)).dot(V0_csr)
 
-    # V1s  ****Updated from previous version as for solving boundary V1s, we can directly use (A_l V1s=b),  and solve for V1s
-    b = (DhlTV0Dle-DhlV0).toarray()
-  #  for i in range(4):
-     #   F_array = b[:,i]
-
-     #   n_array = nullspace_basis[i].array
-     #   F_array -= np.dot(F_array, n_array) * n_array
-        
-      #  F=petsc4py.PETSc.Vec().createWithArray(F_array,comm=MPI.COMM_WORLD)
-      #  F.ghostUpdate(addv=petsc4py.PETSc.InsertMode.ADD, mode=petsc4py.PETSc.ScatterMode.REVERSE) 
-     #   w = shared_utils.solve_ksp(A_l, F, V_l)
-     #   V1s[:, i] = w.x.array[:]
-    
-    # V1s
-    ai, aj, av=A_l.getValuesCSR()  
-    A_l=csr_matrix((av, aj, ai))
-    V1s=scipy.sparse.linalg.spsolve(A_l, b, permc_spec=None, use_umfpack=True)
-    V1s_csr=csr_matrix(V1s)   
+    # --- V1s with Eq.85 projection (solve via solve_ksp + null space) ---
+    b_unproj = (DhlV0 - DhlTV0Dle).toarray()
+    inv_Psi_T_Dc = np.linalg.inv(np.dot(Psi.T, Dc))
+    b = np.dot(Dc, np.dot(inv_Psi_T_Dc, np.dot(Psi.T, b_unproj))) - b_unproj
+    V1s = np.zeros_like(V0)
+    for p in range(4):
+        Fv = petsc4py.PETSc.Vec().createWithArray(np.ascontiguousarray(b[:, p]), comm=MPI.COMM_WORLD)
+        Fv.ghostUpdate(addv=petsc4py.PETSc.InsertMode.ADD, mode=petsc4py.PETSc.ScatterMode.REVERSE)
+        null.remove(Fv)
+        w = shared_utils.solve_ksp(A_l, Fv, V_l)
+        V1s_star = w.x.array[:]
+        V1s[:, p] = V1s_star - np.dot(Psi, np.dot(inv_Dc_T_Psi, np.dot(Dc.T, V1s_star)))
+    V1s_csr = csr_matrix(V1s)
 
     # Ainv
     Ainv=np.linalg.inv(D_eff).astype(np.float64)
@@ -653,7 +676,7 @@ def compute_timo_boun(ABD, boundary_submeshdata):
     Deff_srt[1:3, 3:6] = Y_tim.T[:, 1:4]
     Deff_srt[1:3, 0] = Y_tim.T[:, 0].flatten()
 
-    return np.around(Deff_srt), V0, V1s
+    return D_eff, np.around(Deff_srt), V0, V1s
 
 def compute_stiffness(ABD, mesh, subdomains, l_submesh, r_submesh, boun=False):
     """Compute stiffness matrices for shell segments.
