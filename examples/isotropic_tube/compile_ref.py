@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 CS = r"C:\Users\bagla0\OneDrive - purdue.edu\2026_195\Claude_code\cylinder_study"
 RES = os.path.join(CS, "results")
-HR = ["0.01", "0.03", "0.06", "0.12", "0.2", "0.35", "0.5"]
+HR = ["0.01", "0.03", "0.06", "0.12", "0.2", "0.35"]  # h/R=0.5 dropped (off-scale, far past thick-shell limit)
 hR = np.array([float(h) for h in HR])
 NAMES = ["EA", "GA2", "GA3", "GJ", "EI2", "EI3"]
 
@@ -40,20 +40,21 @@ REFS = [("I", "IML  (inner, R-t/2)", "tab:red"),
         ("O", "OML  (outer, R+t/2)", "tab:blue")]
 # method -> (tag prefix, label, linestyle, marker)
 METHODS = [("SHELL", "FEniCS Kirchhoff (DG)", "-", "o"),
-           ("KIRCH", "JAX Kirchhoff (Hermite)", "--", "s")]
+           ("KIRCH", "JAX Kirchhoff (Hermite)", "--", "s"),
+           ("RM", "JAX RM (Hermite)", ":", "^")]
 
 fig, ax = plt.subplots(2, 3, figsize=(16, 9))
 for j, nm in enumerate(NAMES):
     a = ax[j // 3, j % 3]
     s = SOLID(j)
-    a.axvspan(0.1, 0.5, color="gray", alpha=0.07, zorder=0)
+    a.axvspan(0.1, 0.35, color="gray", alpha=0.07, zorder=0)
     a.axvline(0.1, color="gray", ls="-.", lw=1.2, zorder=1, label="thin | thick shell (h/R=0.1)")
     a.axhline(0, color="k", lw=1.4, label="FEniCS Solid (VABS)")
     for mtag, mlab, ls, mk in METHODS:
         for rsuf, rlab, col in REFS:
             err = 100.0 * (diag(mtag + "_" + rsuf, j) - s) / s
             a.plot(hR, err, color=col, ls=ls, lw=1.9, marker=mk, ms=6,
-                   mfc=("none" if ls == "--" else col), label="%s - %s" % (mlab, rlab))
+                   mfc=("none" if ls != "-" else col), label="%s - %s" % (mlab, rlab))
     a.set_xlabel("h/R"); a.set_ylabel("% error vs solid")
     a.set_title("%s   (%% error vs FEniCS solid)" % nm)
     a.grid(alpha=0.3)
