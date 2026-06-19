@@ -20,6 +20,11 @@ from transverse_shear import transverse_shear_stiffness
 
 
 def rm_tube_6x6(yaml_path, frac, is_closed=True):
+    """RM (C0 Reissner-Mindlin) MSG thin-walled shell -> Timoshenko 6x6.
+    The wall transverse-bending-curvature operator kappa22 = +dN(omega1) was
+    sign-corrected in msg_rm_timo (a -dN error inverted the closed-tube
+    transverse-shear-bending coupling, over-counting it +66%; invisible in the EB
+    diagonal and open sections)."""
     n3d, elements, mat_db, layup_db, e2l = load_yaml(yaml_path)
     nodes, cells, lpe = read_mesh(n3d, elements, e2l)
     if frac:

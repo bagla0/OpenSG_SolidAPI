@@ -28,16 +28,40 @@ solid}.py` (full 6×6 → `results/`) → `compile_aniso.py` (`aniso_pcterr.png`
 FEniCS-spike diagnostic (below).
 
 ## Results (center, % error vs solid)
-- **Diagonal:** all methods <~6 % to h/R=0.5 (RM best; FEniCS GJ +5.7 % at 0.5).
-- **Coupling — the headline:**
+- **Diagonal:** all methods <~6 % to h/R=0.4 (RM/Kirchhoff/FEniCS all good).
+- **Coupling (after the JAX TW corrections below):**
   | term | JAX Kirchhoff | JAX RM | FEniCS Kirchhoff |
   |---|---|---|---|
-  | ext-twist (1,4) | **−69 %** (flat) | −28 % | **−9 %** |
-  | shear-bend (2,5)/(3,6) | **−71 %** (flat) | +56 % | ~+5 % |
+  | ext-twist (1,4) | **−10 %** (flat) | **−10 %** (flat) | **−9 %** |
+  | shear-bend (2,5)/(3,6) | −19 → −30 % | −19 → −23 % | ~+5 % |
   - The [±45] coupling comes from the through-thickness B16/B26 (balanced ⇒ A16=0) and is
-    **transverse-shear-dominated**: JAX **Kirchhoff under-predicts every coupling by a flat
-    ~70 %** (the B-mapping deficit), **RM recovers most** of ext-twist, and the **FEniCS
-    Kirchhoff shell matches the solid to ~10 %** on all couplings.
+    transverse-shear-sensitive via the **wall curvature** k22. All three shells now
+    **bracket the 3D solid** on every coupling (none is the old flat −70 % / +66 % outlier).
+
+## JAX thin-walled (TW) corrections applied
+The closed [±45] tube exposed three sign/curvature bugs in the JAX shell models; all
+fixed in `bagla0/OpenSG-TW` (branch `msg-reissner-mindlin`) and reflected here:
+1. **Wall curvature for 2-node closed meshes** (`msg_mesh.py`): `mesh_curvature` returned
+   0 for flat 2-node tube elements, dropping the k22 = −1/R channel that carries the
+   [±45] coupling. Now recovered from consecutive-corner turning (`_curvature_from_corners`).
+2. **Kirchhoff macro + shear operator signs** (`msg_hermite.py`): the curvature term in the
+   `Ge` kappa12 macro (`Ge[5,1]`) and the `eps_l` shear operator had the wrong sign for the
+   k22 = −1/R convention → fixed ext-twist (−69 %→−10 %) and shear-bend (−71 %→−10 %).
+3. **RM wall transverse-bending-curvature sign** (`msg_rm_timo.py`, `msg_rm.py`): the
+   kappa22 operator was `BDq[4] = −dN(omega1)`; correct is **`+dN(omega1)`** (curvature is
+   the positive rate of the rotation fluctuation). The wrong sign inverted the closed-tube
+   transverse-shear-bending coupling, over-counting shear-bend **+66 %**; it was invisible
+   in the EB diagonal (enters squared) and in open airfoils (st12/st15 unchanged). Fixed →
+   shear-bend −18.8 %, full diagonal + ext-twist preserved.
+
+## OML vs center reference (not a bug)
+The OML curves run high (e.g. EA +20 %, GJ −40 % at h/R=0.4) but this is the **geometric
+reference-surface effect**, not a B-matrix error: the 1D line sits at the *outer* radius
+R_oml=R+t/2, so the flat-plate ABD models a tube (h/R)/2 too large. The diagonal follows
+the exact law **EA/EI ~ +ε, GJ/GA ~ −2ε** (ε=(h/R)/2) for *both* JAX and FEniCS, with **no
+spurious couplings** (verified, `oml_check.py`). **Center (mid-surface) is the accurate
+reference** — it matches the solid to <0.5 %. Making OML accurate would need the (1+z·k)
+curved-shell area metric (Flügge vs Donnell), a modeling choice not pursued here.
 
 ## FEniCS spike bug — found & fixed
 The first run showed FEniCS red spikes at h/R=0.12 (EI2 −32 %, shear-bend +241 %). Cause:
