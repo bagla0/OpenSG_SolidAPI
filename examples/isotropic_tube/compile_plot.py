@@ -71,6 +71,11 @@ fig, ax = plt.subplots(2, 3, figsize=(16, 9))
 for j, nm in enumerate(NAMES):
     a = ax[j // 3, j % 3]
     s = SOLID(j)
+    # thin/thick-shell boundary: thin-shell theory assumes R/t >~ 10  ->  h/R <~ 0.1.
+    # h/R > 0.1 (shaded) is the conventional THICK-shell regime.
+    a.axvspan(0.1, 0.5, color="gray", alpha=0.07, zorder=0)
+    a.axvline(0.1, color="gray", ls="-.", lw=1.3, zorder=1,
+              label="thin | thick shell (R/t=10, h/R=0.1)")
     a.axhline(0, color="k", lw=1.4, label="FEniCS Solid (VABS)")
     a.plot(hR, 100.0 * (analytical(j) - s) / s, color="k", ls=":", lw=2.0, marker="D",
            ms=6, mfc="none", label="Analytical (MSG-Thin Walled)", zorder=5)
