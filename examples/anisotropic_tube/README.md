@@ -33,14 +33,15 @@ FEniCS-spike diagnostic (below).
   | term | JAX Kirchhoff | JAX RM | FEniCS Kirchhoff |
   |---|---|---|---|
   | ext-twist (1,4) | **−10 %** (flat) | **−10 %** (flat) | **−9 %** |
-  | shear-bend (2,5)/(3,6) | −10 → −14 % | −19 → −23 % | ~+3 → +6 % |
+  | shear-bend (2,5)/(3,6) | −7 → −15 % (w/ eps22) | −19 → −23 % | ~+3 → +6 % |
   - The [±45] coupling comes from the through-thickness B16/B26 (balanced ⇒ A16=0) and is
     transverse-shear-sensitive via the **wall curvature** k22. All three shells now
     **bracket the 3D solid** on every coupling (none is the old flat −70 % / +66 % outlier).
 
 ## JAX thin-walled (TW) corrections applied
-The closed [±45] tube exposed three sign/curvature bugs in the JAX shell models; all
-fixed in `bagla0/OpenSG-TW` (branch `msg-reissner-mindlin`) and reflected here:
+The closed [±45] tube exposed three sign/curvature bugs (plus one shear-warping
+enhancement, #4) in the JAX shell models; all in `bagla0/OpenSG-TW` (branch
+`msg-reissner-mindlin`) and reflected here:
 1. **Wall curvature for 2-node closed meshes** (`msg_mesh.py`): `mesh_curvature` returned
    0 for flat 2-node tube elements, dropping the k22 = −1/R channel that carries the
    [±45] coupling. Now recovered from consecutive-corner turning (`_curvature_from_corners`).
@@ -53,6 +54,12 @@ fixed in `bagla0/OpenSG-TW` (branch `msg-reissner-mindlin`) and reflected here:
    transverse-shear-bending coupling, over-counting shear-bend **+66 %**; it was invisible
    in the EB diagonal (enters squared) and in open airfoils (st12/st15 unchanged). Fixed →
    shear-bend −18.8 %, full diagonal + ext-twist preserved.
+4. **Kirchhoff eps22 hoop channel** (`msg_hermite.py` `eps_l`): the shear-warping operator
+   was missing the hoop strain `eps22 = t.dw` (only eps11/2eps12/kappa12 were populated).
+   Adding it pulls the JAX-Kirchhoff shear-bend toward the solid at thin walls (~-10.5% to
+   -7% at h/R=0.06); st12/st15/iso unchanged, diagonal/GA preserved. It makes the coupling
+   curve mildly noisy/asymmetric across h/R -- the bulk of the JAX-vs-FEniCS coupling gap is
+   the *discretization* (Hermite-C1 vs CG2+penalty/Eq.100 V1s), not the operator.
 
 ## OML vs center reference (not a bug)
 The OML curves run high (e.g. EA +20 %, GJ −40 % at h/R=0.4) but this is the **geometric
