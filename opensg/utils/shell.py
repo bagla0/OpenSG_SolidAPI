@@ -2,6 +2,8 @@ from mpi4py import MPI
 import numpy as np
 import dolfinx
 import basix
+# pyvista is an optional visualization dependency; imported lazily inside
+# plot_and_save_local_frames so `import opensg` works without it (e.g. in CI).
 from dolfinx.fem import form, Function, locate_dofs_topological, assemble_scalar
 from ufl import (
     TrialFunction,
@@ -368,6 +370,14 @@ def gamma_e(e, x):
     ufl.Tensor
         6x4 matrix representing the strain measures
     """
+    # --- Macro beam-strain -> plate-strain map, transcribed from the JAX
+    # Hermite-C1 ground-truth operator (msg_hermite.hermite_strain_operators, Ge).
+    # gamma_e is a unique physical operator, so the FEniCS form must equal the
+    # JAX one. Plate-strain rows [eps11, eps22, 2eps12, kappa11, kappa22, kappa12];
+    # beam-strain cols [ext, twist(k1), bend2(k2), bend3(k3)].
+    # Frame primitives: local_grad(e_i, x[j]) = e_i . x_hat_j  (a component, not a
+    # derivative). e2 is the in-plane wall tangent, so its (y,z) global components
+    # are the tangent direction cosines xd2, xd3 of the JAX operator; x[1]=y, x[2]=z.
     k11, k12, k21, k22, k13, k23 = deri(e)
     x11, x21, x31 = (
         local_grad(e[0], x[0]),
@@ -382,77 +392,30 @@ def gamma_e(e, x):
     y1, y2, y3 = local_grad(e[2], x[0]), local_grad(e[2], x[1]), local_grad(e[2], x[2])
 
     Rn = x[1] * (x11 * x32 + x12 * x31) - x[2] * (x11 * x22 + x12 * x21)
+    O = 0.0 * x[0]
+    # The JAX kappa12 constant -2 expressed through the frame: 2*(e3 x e2).e1 = +2
+    # for this frame, so the JAX "-2" is -neg2 (a symbolic expr, not a bare
+    # LiteralFloat -> FFCx can compile it).
+    neg2 = 2.0 * (y2 * (x12 * x31 + x11 * x32) - y3 * (x12 * x21 + x11 * x22))
 
-    E41 = -k11 * (x11**2 - y1**2) - k12 * x11 * x12
-    E51 = -k21 * x11 * x12 - k22 * (x12**2 - y1**2)
-    E61 = (
-        -k11 * x11 * x12
-        - k12 * (x12**2 - y1**2)
-        - k22 * x11 * x12
-        - k21 * (x11**2 - y1**2)
-    )
-
-    E42 = (
-        k11 * (y1 * (x[1] * y3 - x[2] * y2) + x11 * (x[2] * x21 - x[1] * x31))
-        + k12 * 0.5 * (-Rn)
-        + 2 * x11 * (y2 * x31 - y3 * x21)
-    )
-    E52 = (
-        k22 * (y1 * (x[1] * y3 - x[2] * y2) + x12 * (x[2] * x22 - x[1] * x32))
-        + k21 * 0.5 * (-Rn)
-        + 2 * x12 * (y2 * x32 - y3 * x22)
-    )
-
-    E62 = (
-        (k11 + k22) * 0.5 * (-Rn)
-        + (k12 + k21) * (y1 * (x[1] * y3 - x[2] * y2))
-        + k12 * x12 * (x[2] * x22 - x[1] * x32)
-        + 2 * (y2 * (x12 * x31 + x11 * x32) - y3 * (x12 * x21 + x11 * x22))
-        + k21 * x11 * (x[2] * x21 - x[1] * x31)
-    )
-
-    E43 = (
-        k11 * x[2] * (y1**2 - x11**2)
-        - k12 * x11 * x12 * x[2]
-        + x11 * (y3 * x11 - 2 * y1 * x31)
-    )
-    E53 = (
-        k22 * x[2] * (y1**2 - x12**2)
-        - k21 * x11 * x12 * x[2]
-        + x12 * (y3 * x12 - 2 * y1 * x32)
-    )
-    E63 = (
-        -(k11 + k22) * x[2] * x11 * x12
-        + x[2] * (k12 * (y1**2 - x12**2) + k21 * (y1**2 - x11**2))
-        - 2 * y1 * (x12 * x31 + x11 * x32)
-        + 2 * y3 * x11 * x12
-    )
-
-    E44 = (
-        k11 * x[1] * (-(y1**2) + x11**2)
-        + k12 * x11 * x12 * x[1]
-        + x11 * (-y2 * x11 + 2 * y1 * x21)
-    )
-    E54 = (
-        k22 * x[1] * (-(y1**2) + x12**2)
-        + k21 * x11 * x12 * x[1]
-        + x12 * (-y2 * x12 + 2 * y1 * x22)
-    )
-    E64 = (
-        (k11 + k22) * x11 * x12 * x[1]
-        + x[1] * (k12(-(y1**2) + x12**2) + k21 * (-(y1**2) + x11**2))
-        + 2 * y1 * (x12 * x21 + x11 * x22)
-        - 2 * y2 * x11 * x12
-    )
-
+    # Macro beam-strain -> plate-strain map, made identical to the JAX Hermite-C1
+    # ground-truth operator Ge (msg_hermite.hermite_strain_operators), which
+    # matches 2D-solid VABS on GJ/EI2. Membrane rows (1-3) keep the original
+    # projection form, which already equals Ge for this frame (e1 = beam axis:
+    # x11=1, x12~0). kappa rows (4-6) are Ge: the wall tangent (xd2,xd3) of Ge is
+    # the CCW contour tangent = -e2 here (the frame e2 is oppositely oriented), so
+    #   bend2/bend3 -> kappa11 = (xd2, xd3) = (-e2.y, -e2.z) = (-x22, -x32),
+    #   twist       -> kappa12 = -2 - (k22/2) Rn   (-2 == -neg2).
+    # eps22, kappa22, and the (previously present, spurious) twist->kappa11/kappa22
+    # and ext->kappa entries are ZERO -- those were the +33%/+25% GJ/EI2 over-count.
     return as_tensor(
         [
             (x11**2, x11 * (x[1] * x31 - x[2] * x21), x[2] * x11**2, -x[1] * x11**2),
             (x12**2, x12 * (x[1] * x32 - x[2] * x22), x[2] * x12**2, -x[1] * x12**2),
             (2 * x11 * x12, Rn, 2 * x11 * x12 * x[2], -2 * x11 * x12 * x[1]),
-            (E41, E42, E43, E44),
-            (E51, E52, E53, E54),
-            (E61, E62, E63, E64),
+            (O, O, -x22, -x32),
+            (O, O, O, O),
+            (O, -neg2 - k22 / 2.0 * Rn, O, O),
         ]
     )
 
@@ -484,7 +447,7 @@ def local_boun(mesh_l, frame, subdomains_l):
         - dx: measure
     """
     V_l = dolfinx.fem.functionspace(
-        mesh_l, basix.ufl.element("S", mesh_l.topology.cell_name(), 2, shape=(3,))
+        mesh_l, basix.ufl.element("CG", mesh_l.topology.cell_name(), 2, shape=(3,))
     )
     le1, le2, le3 = frame
     e1l, e2l, e3l = Function(V_l), Function(V_l), Function(V_l)
@@ -504,7 +467,7 @@ def local_boun(mesh_l, frame, subdomains_l):
     )
     e3l.interpolate(fexpr3)
     V_l = dolfinx.fem.functionspace(
-        mesh_l, basix.ufl.element("S", mesh_l.topology.cell_name(), 2, shape=(3,))
+        mesh_l, basix.ufl.element("CG", mesh_l.topology.cell_name(), 2, shape=(3,))
     )
     frame = [e1l, e2l, e3l]
     dv = TrialFunction(V_l)
@@ -515,6 +478,79 @@ def local_boun(mesh_l, frame, subdomains_l):
     return frame, V_l, dv, v, x, dx
 
 
+def plot_and_save_local_frames(mesh_l, frame, subdomains, prefix="orientation"):
+    import pyvista  # optional viz dependency, imported lazily
+    e1l, e2l, e3l = frame
+    
+    topology, cell_types, geometry = dolfinx.plot.vtk_mesh(mesh_l, mesh_l.topology.dim)
+    grid = pyvista.UnstructuredGrid(topology, cell_types, geometry)
+    grid.cell_data["Marker"] = subdomains.values[:]
+    grid.set_active_scalars("Marker")
+    # 2. Setup DG-0 space for arrow centers
+    # Using shape=(3,) ensures we capture the full 3D vector at each cell
+    V_dg0 = dolfinx.fem.functionspace(
+        mesh_l, basix.ufl.element("DG", mesh_l.topology.cell_name(), 0, shape=(3,))
+    )
+    
+    e1_dg0 = dolfinx.fem.Function(V_dg0)
+    e2_dg0 = dolfinx.fem.Function(V_dg0)
+    e3_dg0 = dolfinx.fem.Function(V_dg0)
+    
+    # Get interpolation points from the DG0 space
+    interp_pts = V_dg0.element.interpolation_points()
+    
+    # Create expressions with explicit communicator context
+    expr1 = dolfinx.fem.Expression(e1l, interp_pts, comm=mesh_l.comm)
+    e1_dg0.interpolate(expr1)
+    
+    expr2 = dolfinx.fem.Expression(e2l, interp_pts, comm=mesh_l.comm)
+    e2_dg0.interpolate(expr2)
+    
+    expr3 = dolfinx.fem.Expression(e3l, interp_pts, comm=mesh_l.comm)
+    e3_dg0.interpolate(expr3)
+    
+    # 4. Synchronize Ghost Cells (Critical for zero mistakes)
+    e1_dg0.x.scatter_forward()
+    e2_dg0.x.scatter_forward()
+    e3_dg0.x.scatter_forward()
+    
+    # 5. Map to PyVista (ensuring correct array reshaping)
+    # DG0 has 1 vector per cell. Reshape to (-1, 3) for glyph compatibility.
+    grid.cell_data["e1"] = e1_dg0.x.array.reshape(-1, 3)
+    grid.cell_data["e2"] = e2_dg0.x.array.reshape(-1, 3)
+    grid.cell_data["e3"] = e3_dg0.x.array.reshape(-1, 3)
+    
+    centers = grid.cell_centers()
+
+    def save_plot(vector_name, color, title, filename):
+        # Initialize plotter
+        p = pyvista.Plotter(off_screen=True) 
+        p.add_mesh(grid)
+        
+        # Orient and factor glyphs
+        # factor=0.05 is usually good for unit vectors; adjust if arrows are too small
+        arrows = centers.glyph(orient=vector_name, factor=0.06, scale=False)
+        p.add_mesh(arrows, color=color)
+        
+        p.add_title(title, font_size=12)
+        p.add_axes()
+        
+        # View looking down X1 axis (VABS standard)
+       # p.view_yz() 
+        
+        # Use rank 0 only to write the screenshot if in MPI
+        if mesh_l.comm.rank == 0:
+            p.screenshot(filename)
+            print(f"Generated: {filename}")
+        
+        p.close()
+
+    # Final Execution
+    save_plot("e1", "red", "Local Frame e1 (Axial)", f"{prefix}_e1.png")
+    save_plot("e2", "green", "Local Frame e2 (Tangent)", f"{prefix}_e2.png")
+    save_plot("e3", "blue", "Local Frame e3 (Normal)", f"{prefix}_e3.png")
+    
+    
 # def A_mat(ABD, e_l, x_l, dx_l, nullspace_l, v_l, dvl, nphases):
 #     """Assembly matrix
 
