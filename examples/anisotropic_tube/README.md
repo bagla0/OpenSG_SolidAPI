@@ -33,7 +33,7 @@ FEniCS-spike diagnostic (below).
   | term | JAX Kirchhoff | JAX RM | FEniCS Kirchhoff |
   |---|---|---|---|
   | ext-twist (1,4) | **−10 %** (flat) | **−10 %** (flat) | **−9 %** |
-  | shear-bend (2,5)/(3,6) | −19 → −30 % | −19 → −23 % | ~+5 % |
+  | shear-bend (2,5)/(3,6) | −10 → −14 % | −19 → −23 % | ~+3 → +6 % |
   - The [±45] coupling comes from the through-thickness B16/B26 (balanced ⇒ A16=0) and is
     transverse-shear-sensitive via the **wall curvature** k22. All three shells now
     **bracket the 3D solid** on every coupling (none is the old flat −70 % / +66 % outlier).
