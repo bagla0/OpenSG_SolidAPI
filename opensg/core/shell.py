@@ -535,7 +535,11 @@ def compute_timo_boun(ABD, boundary_submeshdata):
         w = shared_utils.solve_ksp(A_l, F_l, V_l)
         V0[:, p] = w.x.array[:]
 
-    # --- VABS Eq.85 projection of V0 (3 translations + twist), matrix-free ---
+    # --- Dc / Psi for the Eq.100 V1s projection ---
+    # V0 (classical / Euler-Bernoulli warping) needs NO Eq.85 projection: its
+    # rigid-body constraints are already enforced by the null space in its own
+    # solve (null.remove + solve_ksp). The Eq.85-style constraint projection is
+    # applied ONLY to V1s (the Timoshenko warping) in Eq.100, below.
     Dc_cols = []
     for expr in [v_[0], v_[1], v_[2], v_[1].dx(2) - v_[2].dx(1)]:
         f_c = dolfinx.fem.form(sum(expr * dx(ii) for ii in range(nphases)))
@@ -548,7 +552,6 @@ def compute_timo_boun(ABD, boundary_submeshdata):
     psi_funcs[3].interpolate(lambda x: np.vstack((np.zeros_like(x[0]), -x[2], x[1])))
     Psi = np.column_stack([f.x.array[:] for f in psi_funcs])
     inv_Dc_T_Psi = np.linalg.inv(np.dot(Dc.T, Psi))
-    V0 = V0 - np.dot(Psi, np.dot(inv_Dc_T_Psi, np.dot(Dc.T, V0)))
 
     V0_csr=csr_matrix(V0)
     D1=V0_csr.T.dot(csr_matrix(-Dhe)) 
