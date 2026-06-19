@@ -54,6 +54,8 @@ def convert(src, scale):
 for hR in HR:
     src = yaml.safe_load(open(os.path.join(DATA, "shell_iso_%s.yaml" % hR)))
     R_oml = math.hypot(src["nodes"][0][0], src["nodes"][0][1])
-    open(os.path.join(OUT, "1Dtube_iso_%s.yaml" % hR), "w").write(convert(src, 1.0 / R_oml))      # center
-    open(os.path.join(OUT, "1Dtube_iso_OML_%s.yaml" % hR), "w").write(convert(src, 1.0))           # OML
-    print("wrote 1Dtube_iso_%s (center R_mid=1.0) + _OML_%s (R_oml=%.4f)" % (hR, hR, R_oml))
+    R_iml = 1.0 - float(hR) / 2.0                                                                   # inner surface
+    open(os.path.join(OUT, "1Dtube_iso_%s.yaml" % hR), "w").write(convert(src, 1.0 / R_oml))       # center (R_mid)
+    open(os.path.join(OUT, "1Dtube_iso_OML_%s.yaml" % hR), "w").write(convert(src, 1.0))            # OML (R_oml)
+    open(os.path.join(OUT, "1Dtube_iso_IML_%s.yaml" % hR), "w").write(convert(src, R_iml / R_oml))  # IML (R_iml)
+    print("wrote 1Dtube_iso_%s center(R=1.0) + _OML_(R=%.4f) + _IML_(R=%.4f)" % (hR, R_oml, R_iml))

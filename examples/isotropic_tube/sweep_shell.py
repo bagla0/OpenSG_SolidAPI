@@ -15,7 +15,8 @@ lines = ["# tag hR EA GA2 GA3 GJ EI2 EI3"]
 # center: line on the wall mid-surface (R_mid) -> ABD frac=0.5 (mid-ply reference);
 # OML: line on the outer surface (R_oml) -> ABD frac=0 (OML reference).
 for tag, pat, frac in [("SHELL_C", "data/1Dtube_iso_%s.yaml", 0.5),
-                       ("SHELL_O", "data/1Dtube_iso_OML_%s.yaml", 0.0)]:
+                       ("SHELL_O", "data/1Dtube_iso_OML_%s.yaml", 0.0),
+                       ("SHELL_I", "data/1Dtube_iso_IML_%s.yaml", 1.0)]:
     for hR in hRs:
         sm = ShellBounMesh(pat % hR)
         abd = sm.compute_ABD(frac=frac); ABD = abd[0] if isinstance(abd, (tuple, list)) else abd

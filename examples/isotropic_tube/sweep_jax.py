@@ -26,7 +26,7 @@ def row(tag, hR, d):
 
 for hR in hRs:
     y = os.path.join(DATA, "shell_iso_%s.yaml" % hR)
-    for frac, suf in [(0.5, "C"), (0.0, "O")]:
+    for frac, suf in [(0.5, "C"), (0.0, "O"), (1.0, "I")]:
         _, K, _ = timoshenko_from_yaml(y, frac=frac)
         row("KIRCH_" + suf, hR, np.diag(np.asarray(K)))
         RM, _ = rm_tube_6x6(y, frac=frac)
