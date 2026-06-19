@@ -487,8 +487,9 @@ def compute_timo_boun(ABD, boundary_submeshdata):
         boundary_mesh, boundary_frame, boundary_subdomains
     )
     
-    utils.plot_and_save_local_frames(boundary_mesh, boundary_frame,boundary_subdomains, prefix="orientation")
-    
+    # (orientation-frame plotting via plot_and_save_local_frames is optional viz;
+    #  not called here so the homogenization has no hard pyvista dependency)
+
     boundary_mesh.topology.create_connectivity(1, 1)
     V0, Dle, Dhe, D_ee, V1s = utils.initialize_array(V_l)
     nullspace_basis, null = shared_utils.compute_nullspace(V_l, ABD=False)  # 4 modes: 3 transl + twist (CG2 has dof-coords)

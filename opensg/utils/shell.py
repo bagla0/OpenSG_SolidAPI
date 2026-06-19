@@ -2,7 +2,8 @@ from mpi4py import MPI
 import numpy as np
 import dolfinx
 import basix
-import pyvista
+# pyvista is an optional visualization dependency; imported lazily inside
+# plot_and_save_local_frames so `import opensg` works without it (e.g. in CI).
 from dolfinx.fem import form, Function, locate_dofs_topological, assemble_scalar
 from ufl import (
     TrialFunction,
@@ -478,6 +479,7 @@ def local_boun(mesh_l, frame, subdomains_l):
 
 
 def plot_and_save_local_frames(mesh_l, frame, subdomains, prefix="orientation"):
+    import pyvista  # optional viz dependency, imported lazily
     e1l, e2l, e3l = frame
     
     topology, cell_types, geometry = dolfinx.plot.vtk_mesh(mesh_l, mesh_l.topology.dim)
