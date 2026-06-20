@@ -17,7 +17,7 @@ from fe_jax import timoshenko_from_yaml
 from rm_tube import rm_tube_6x6
 
 DATA = os.path.join(CC, "benchmark_tube", "data")
-TMP = os.path.join(HERE, "_tmp"); os.makedirs(TMP, exist_ok=True)
+TMP = os.path.join(HERE, "meshes"); os.makedirs(TMP, exist_ok=True)   # generated shell meshes kept here
 NCS = [80, 160, 320, 640]
 LBL = ["EA", "GA2", "GA3", "GJ", "EI2", "EI3"]
 
